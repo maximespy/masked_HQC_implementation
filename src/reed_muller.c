@@ -11,9 +11,6 @@
 // number of repeated code words
 #define MULTIPLICITY CEIL_DIVIDE(PARAM_N2, 128)
 
-// copy bit 0 into all bits of a 32 bit value
-#define BIT0MASK(x) (uint32_t)(-((x) & 1))
-
 /**
  * @brief Masked copy bit 0 of x to all bits of 32-bits out
  *
@@ -21,10 +18,10 @@
  * @param[out] [out,] output 32-bits N_SHARES-shares boolean-masked value
  */
 void MSK_bit0mask(MSK_uint32_t out, const MSK_uint8_t x) {
-  memset(out, 0, 4 * (N_SHARES));
-  for (size_t d = 0; d < N_SHARES; d++) {
-    out[d] = x[d] & 1;
-  }
+  MSK_uint8_t t;
+
+  MSK_8b_semi_and(t, x, 1);
+  MSK_8b_to_32b_copy(out, t);
   MSK_32b_neg(out, out);
 }
 
@@ -48,62 +45,52 @@ void MSK_bit0mask(MSK_uint32_t out, const MSK_uint8_t x) {
  */
 void MSK_encode(MSK_uint64_t cword[], MSK_uint8_t message) {
   MSK_uint32_t first_word;
-  MSK_uint32_t tmp_w1, tmp_w2, tmp_w3, tmp_w4, tmp_w5, tmp_w6, tmp_w7;
+  MSK_uint32_t tmp_w, tmp_w5;
   MSK_uint64_t tmp_w64 = {0};
-  MSK_uint8_t ms1, ms2, ms3, ms4, ms5, ms6, ms7;
-
-  MSK_SNI_8b_inplace_refresh(message);
-
-  MSK_8b_right_shift(ms1, message, 1);
-  MSK_8b_right_shift(ms2, message, 2);
-  MSK_8b_right_shift(ms3, message, 3);
-  MSK_8b_right_shift(ms4, message, 4);
-  MSK_8b_right_shift(ms5, message, 5);
-  MSK_8b_right_shift(ms6, message, 6);
-  MSK_8b_right_shift(ms7, message, 7);
+  MSK_uint8_t ms;
 
   // bit 7 flips all the bits, do that first to save work
-  // first_word = BIT0MASK(message >> 7);
-  MSK_bit0mask(first_word, ms7);
-#ifdef MIMOSNI
-  MSK_SNI_32b_inplace_refresh(first_word);
-#endif
+  MSK_SNI_8b_inplace_refresh(message);
+  MSK_8b_right_shift(ms, message, 7);
+  MSK_bit0mask(first_word, ms);
 
   // bits 0, 1, 2, 3, 4 are the same for all four longs
   // (Warning: in the bit matrix above, low bits are at the left!)
-  // first_word ^= BIT0MASK(message >> 0) & 0xaaaaaaaa;
   MSK_SNI_8b_inplace_refresh(message);
-  MSK_bit0mask(tmp_w7, message);
-  for (size_t d = 0; d < N_SHARES; d++) {
-    first_word[d] ^= tmp_w7[d] & 0xaaaaaaaa;
-  }
+  MSK_bit0mask(tmp_w, message);
+  MSK_32b_semi_and(tmp_w, tmp_w, 0xaaaaaaaa);
+  MSK_32b_xor(first_word, first_word, tmp_w);
 
-  // first_word ^= BIT0MASK(message >> 1) & 0xcccccccc;
-  MSK_bit0mask(tmp_w1, ms1);
-  for (size_t d = 0; d < N_SHARES; d++) {
-    first_word[d] ^= tmp_w1[d] & 0xcccccccc;
-  }
-  // first_word ^= BIT0MASK(message >> 2) & 0xf0f0f0f0;
-  MSK_bit0mask(tmp_w2, ms2);
-  for (size_t d = 0; d < N_SHARES; d++) {
-    first_word[d] ^= tmp_w2[d] & 0xf0f0f0f0;
-  }
-  // first_word ^= BIT0MASK(message >> 3) & 0xff00ff00;
-  MSK_bit0mask(tmp_w3, ms3);
-  for (size_t d = 0; d < N_SHARES; d++) {
-    first_word[d] ^= tmp_w3[d] & 0xff00ff00;
-  }
-  // first_word ^= BIT0MASK(message >> 4) & 0xffff0000;
-  MSK_bit0mask(tmp_w4, ms4);
-  for (size_t d = 0; d < N_SHARES; d++) {
-    first_word[d] ^= tmp_w4[d] & 0xffff0000;
-  }
+  MSK_SNI_8b_inplace_refresh(message);
+  MSK_8b_right_shift(ms, message, 1);
+  MSK_bit0mask(tmp_w, ms);
+  MSK_32b_semi_and(tmp_w, tmp_w, 0xcccccccc);
+  MSK_32b_xor(first_word, first_word, tmp_w);
+
+  MSK_SNI_8b_inplace_refresh(message);
+  MSK_8b_right_shift(ms, message, 2);
+  MSK_bit0mask(tmp_w, ms);
+  MSK_32b_semi_and(tmp_w, tmp_w, 0xf0f0f0f0);
+  MSK_32b_xor(first_word, first_word, tmp_w);
+
+  MSK_SNI_8b_inplace_refresh(message);
+  MSK_8b_right_shift(ms, message, 3);
+  MSK_bit0mask(tmp_w, ms);
+  MSK_32b_semi_and(tmp_w, tmp_w, 0xff00ff00);
+  MSK_32b_xor(first_word, first_word, tmp_w);
+
+  MSK_SNI_8b_inplace_refresh(message);
+  MSK_8b_right_shift(ms, message, 4);
+  MSK_bit0mask(tmp_w, ms);
+  MSK_32b_semi_and(tmp_w, tmp_w, 0xffff0000);
+  MSK_32b_xor(first_word, first_word, tmp_w);
+
   // we can store this in the first quarter
   MSK_32b_to_64b_copy(cword[0], first_word);
 
-  // bit 5 flips entries 1 and 3; bit 6 flips 2 and 3
-  // first_word ^= BIT0MASK(message >> 5);
-  MSK_bit0mask(tmp_w5, ms5);
+  MSK_SNI_8b_inplace_refresh(message);
+  MSK_8b_right_shift(ms, message, 5);
+  MSK_bit0mask(tmp_w5, ms);
   MSK_32b_xor(first_word, first_word, tmp_w5);
   MSK_32b_to_64b_copy(tmp_w64, first_word);
   MSK_64b_left_shift(tmp_w64, tmp_w64, 32);
@@ -112,24 +99,20 @@ void MSK_encode(MSK_uint64_t cword[], MSK_uint8_t message) {
   MSK_SNI_64b_inplace_refresh(cword[0]);
   MSK_SNI_64b_inplace_refresh(tmp_w64);
 #endif
-  // cword[0] |= (uint64_t)first_word << 32;
-  // MSK_SNI_64b_or(cword[0],cword[0],tmp_w64);
+
   MSK_64b_xor(cword[0], cword[0], tmp_w64);
 
-  // first_word ^= BIT0MASK(message >> 6);
-  MSK_bit0mask(tmp_w6, ms6);
-  MSK_32b_xor(first_word, first_word, tmp_w6);
+  MSK_SNI_8b_inplace_refresh(message);
+  MSK_8b_right_shift(ms, message, 6);
+  MSK_bit0mask(tmp_w, ms);
+  MSK_32b_xor(first_word, first_word, tmp_w);
   MSK_32b_to_64b_copy(cword[1], first_word);
   MSK_64b_left_shift(cword[1], cword[1], 32);
   MSK_SNI_64b_inplace_refresh(cword[1]);
 
-  // first_word ^= BIT0MASK(message >> 5);
   MSK_SNI_32b_inplace_refresh(tmp_w5);
   MSK_32b_xor(first_word, first_word, tmp_w5);
   MSK_32b_to_64b_copy(tmp_w64, first_word);
-
-  // MSK_SNI_64b_or(cword[1],cword[1],tmp_w64);
-  // cword[1] |= first_word;
   MSK_64b_xor(cword[1], cword[1], tmp_w64);
 }
 
